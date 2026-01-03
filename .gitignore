@@ -1,0 +1,4 @@
+bigint.o
+main.o
+modular.o
+bigint_calc

@@ -1,45 +1,59 @@
-# Компилятор
-CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -I.
+# SPDX-License-Identifier: MIT
+# Plain-Make build for systems without CMake. `make help` lists targets.
 
-# Цели
-TARGET = bigint_calc
-SOURCES = bigint.cpp modular.cpp main.cpp
-OBJECTS = $(SOURCES:.cpp=.o)
-HEADERS = bigint.hpp modular.hpp
+CXX      ?= c++
+CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
+INCLUDES := -Iinclude
+BUILD    := build
 
-# Основная цель
-all: $(TARGET)
+LIB_SRC  := src/bigint.cpp src/montgomery.cpp src/modexp.cpp \
+            src/rng.cpp src/primes.cpp src/rsa.cpp
+TESTS    := bigint montgomery primes rsa constant_time
 
-# Сборка исполняемого файла
-$(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+.PHONY: all cli bench lab test clean help fuzz fuzz-replay asan
 
-# Компиляция объектных файлов
-%.o: %.cpp $(HEADERS)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+all: cli bench lab ## Build the CLI, benchmark and side-channel lab
 
-# Очистка
-clean:
-	rm -f $(OBJECTS) $(TARGET)
+$(BUILD):
+	@mkdir -p $(BUILD)
 
-# Запуск
-run: $(TARGET)
-	./$(TARGET)
+cli: | $(BUILD) ## Build the montx command-line tool
+	$(CXX) $(CXXFLAGS) $(INCLUDES) apps/montx_cli.cpp $(LIB_SRC) -o $(BUILD)/montx
 
-# Пересборка
-rebuild: clean all
+bench: | $(BUILD) ## Build the benchmark
+	$(CXX) $(CXXFLAGS) -O3 $(INCLUDES) bench/bench_modexp.cpp $(LIB_SRC) -o $(BUILD)/bench_modexp
 
-# Теги для отладки
-tags:
-	ctags -R .
+lab: | $(BUILD) ## Build the side-channel lab
+	$(CXX) $(CXXFLAGS) $(INCLUDES) lab/timing_attack.cpp $(LIB_SRC) -o $(BUILD)/timing_attack
 
-# Файлы для архивации
-dist: clean
-	tar -czf bigint_project.tar.gz *.cpp *.hpp Makefile README*
+test: | $(BUILD) ## Build and run the unit tests
+	@set -e; for t in $(TESTS); do \
+		echo "building test_$$t"; \
+		$(CXX) $(CXXFLAGS) $(INCLUDES) -Itests tests/test_$$t.cpp $(LIB_SRC) -o $(BUILD)/test_$$t; \
+		$(BUILD)/test_$$t; \
+	done
 
-# Проверка стиля кода
-check:
-	cppcheck --enable=all --suppress=missingIncludeSystem .
+asan: | $(BUILD) ## Run the tests under ASan + UBSan
+	@set -e; for t in $(TESTS); do \
+		$(CXX) $(CXXFLAGS) -g -fsanitize=address,undefined $(INCLUDES) -Itests \
+			tests/test_$$t.cpp $(LIB_SRC) -o $(BUILD)/asan_$$t; \
+		$(BUILD)/asan_$$t; \
+	done
 
-.PHONY: all clean run rebuild tags dist check
+fuzz: | $(BUILD) ## Build the libFuzzer target (clang only)
+	$(CXX) $(CXXFLAGS) -g -O1 -fsanitize=fuzzer,address,undefined $(INCLUDES) \
+		fuzz/fuzz_montmul.cpp src/bigint.cpp src/montgomery.cpp src/modexp.cpp \
+		-o $(BUILD)/fuzz_montmul
+
+fuzz-replay: | $(BUILD) ## Build the corpus replayer (any compiler) and run it on fuzz/corpus
+	$(CXX) $(CXXFLAGS) -DMONTX_FUZZ_STANDALONE $(INCLUDES) \
+		fuzz/fuzz_montmul.cpp src/bigint.cpp src/montgomery.cpp src/modexp.cpp \
+		-o $(BUILD)/fuzz_replay
+	$(BUILD)/fuzz_replay fuzz/corpus/*
+
+clean: ## Remove build artifacts
+	rm -rf $(BUILD)
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'

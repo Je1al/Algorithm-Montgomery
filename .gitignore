@@ -1,4 +1,29 @@
-bigint.o
-main.o
-modular.o
-bigint_calc
+# Build output
+build/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.exe
+*.out
+
+# Binaries built ad-hoc (root-anchored so they don't match include/montx/, etc.)
+/montx
+/bench_modexp
+/timing_attack
+/fuzz_montmul
+/fuzz_replay
+/test_*
+
+# Fuzzer artifacts
+crash-*
+leak-*
+oom-*
+timeout-*
+*.profraw
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+compile_commands.json
